@@ -2,16 +2,20 @@
   "name": "analyticbackend",
   "scripts": {
     "dev": "wrangler dev",
+    "db:generate": "drizzle-kit generate", 
+    "db:up":"drizzle-kit up",
     "deploy": "wrangler deploy --minify"
   },
   "dependencies": {
+    "@libsql/client": "^0.14.0",
     "@upstash/redis": "^1.34.4",
-    
-    "hono": "^4.6.20"
+    "drizzle-kit": "^0.30.4",
+    "drizzle-orm": "^0.39.3",
+    "hono": "^4.6.20",
+    "mongoose": "^8.10.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250109.0",
-    
     "wrangler": "^3.101.0"
   }
 }

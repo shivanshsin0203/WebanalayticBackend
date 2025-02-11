@@ -2,7 +2,13 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "analyticbackend",
   "main": "src/index.ts",
-  "compatibility_date": "2025-02-09"
-  
+  "compatibility_date": "2025-02-09",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "webanalytic",
+      "database_id": "f855f788-9f4a-4605-9fce-bd9ceeb24384"
+    }
+  ]
  
 }
