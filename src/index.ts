@@ -9,6 +9,7 @@ import { eq } from "drizzle-orm";
 
 export type Env = {
   DB: D1Database;
+  ANALYTICS:KVNamespace
 };
 const app = new Hono<{ Bindings: Env }>();
 app.use(cors());
@@ -91,69 +92,105 @@ app.post("/items", async (c) => {
 });
 app.post("/track", async (c) => {
   const body = await c.req.json();
-  console.log(body);
   const keyId = body.keyId;
-
   const sessionId = body.sessionId;
   const device = body.device;
   const country = body.country;
-  const sessionIdPresent = body.sessionIdPresent;
 
   if (!keyId || !sessionId || !device || !country) {
     return c.text("Missing parameters!", 400);
   }
-
+  const today = new Date().toISOString().split("T")[0];
+  const dailyViewsKey = `views:${keyId}:${today}`;
   // Increment total views
-  await redis.incr(`views:${keyId}`);
+  const viewKey = `views:${keyId}`;
+  const currentViews = parseInt((await c.env.ANALYTICS.get(viewKey)) || "0");
+  await c.env.ANALYTICS.put(viewKey, (currentViews + 1).toString());
 
-  // Track unique views
+  // Track unique views using session IDs
+  const sessionKey = `sessions:${keyId}:${sessionId}`;
+  const isNewSession = !(await c.env.ANALYTICS.get(sessionKey));
 
-  if (!sessionIdPresent) {
-    await redis.incr(`unique_views:${keyId}`);
+  if (isNewSession) {
+    await c.env.ANALYTICS.put(sessionKey, "1", { expirationTtl: 86400 });
+
+    const uniqueViewKey = `unique_views:${keyId}`;
+    const currentUniqueViews = parseInt((await c.env.ANALYTICS.get(uniqueViewKey)) || "0");
+    await c.env.ANALYTICS.put(uniqueViewKey, (currentUniqueViews + 1).toString());
   }
 
   // Increment device count
-  await redis.incr(`device:${keyId}:${device}`);
-
+  const deviceKey = `device:${keyId}:${device}`;
+  const currentDeviceCount = parseInt((await c.env.ANALYTICS.get(deviceKey)) || "0");
+  await c.env.ANALYTICS.put(deviceKey, (currentDeviceCount + 1).toString());
+  
   // Increment country count
-  await redis.incr(`country:${keyId}:${country}`);
+  const countryKey = `country:${keyId}:${country}`;
+  const currentCountryCount = parseInt((await c.env.ANALYTICS.get(countryKey)) || "0");
+  await c.env.ANALYTICS.put(countryKey, (currentCountryCount + 1).toString());
 
-  await redis.sadd(`online_users:${keyId}`, sessionId);
-  await redis.expire(`online_users:${keyId}`, 300);
+  // Track online users (store active session IDs)
+  const onlineUsersKey = `online_users:${keyId}:${sessionId}`;
+  await c.env.ANALYTICS.put(onlineUsersKey, "1", { expirationTtl: 300 });
+
+  const dailyViews = parseInt((await c.env.ANALYTICS.get(dailyViewsKey)) || "0");
+  await c.env.ANALYTICS.put(dailyViewsKey, (dailyViews + 1).toString(), { expirationTtl: 60 * 60 * 24 * 30 });
 
   return c.json({ message: "View Tracked Successfully" });
 });
+
 app.get("/analytics", async (c) => {
   const keyId = c.req.query("keyId");
 
-  if (!keyId) {
-    return c.text("Missing keyId!", 400);
-  }
+  if (!keyId) return c.text("Missing keyId!", 400);
 
-  // Fetch views & unique views
-  const views = (await redis.get(`views:${keyId}`)) || 0;
-  const uniqueViews = (await redis.get(`unique_views:${keyId}`)) || 0;
+  const views = (await c.env.ANALYTICS.get(`views:${keyId}`)) || 0;
+  const uniqueViews = (await c.env.ANALYTICS.get(`unique_views:${keyId}`)) || 0;
 
-  // Fetch device data
-  const mobile = (await redis.get(`device:${keyId}:mobile`)) || 0;
-  const desktop = (await redis.get(`device:${keyId}:desktop`)) || 0;
-  const tablet = (await redis.get(`device:${keyId}:tablet`)) || 0;
+  const mobile = (await c.env.ANALYTICS.get(`device:${keyId}:mobile`)) || 0;
+  const desktop = (await c.env.ANALYTICS.get(`device:${keyId}:desktop`)) || 0;
+  const tablet = (await c.env.ANALYTICS.get(`device:${keyId}:tablet`)) || 0;
 
-  // Fetch country data
-  const us = (await redis.get(`country:${keyId}:US`)) || 0;
-  const india = (await redis.get(`country:${keyId}:IN`)) || 0;
-  const france = (await redis.get(`country:${keyId}:FR`)) || 0;
+  const us = (await c.env.ANALYTICS.get(`country:${keyId}:US`)) || 0;
+  const india = (await c.env.ANALYTICS.get(`country:${keyId}:IN`)) || 0;
+  const france = (await c.env.ANALYTICS.get(`country:${keyId}:FR`)) || 0;
+  const canada = (await c.env.ANALYTICS.get(`country:${keyId}:CA`)) || 0
+  const uk= (await c.env.ANALYTICS.get(`country:${keyId}:GB`)) || 0
+  const australia = (await c.env.ANALYTICS.get(`country:${keyId}:AU`)) || 0
 
-  // Fetch online users count
-  const onlineUsers = (await redis.scard(`online_users:${keyId}`)) || 0;
+  const onlineUsersKeys = await c.env.ANALYTICS.list({ prefix: `online_users:${keyId}:` });
+  const onlineUsers = onlineUsersKeys.keys.length;
 
   return c.json({
     views,
     uniqueViews,
-    devices: { mobile, desktop, tablet },
-    countries: { us, india, france },
     onlineUsers,
+    devices: { mobile, desktop, tablet },
+    countries: { us, india, france, canada, uk, australia },
   });
+});
+
+app.get("/analytics/daily", async (c) => {
+  const keyId = c.req.query("keyId");
+  const days = parseInt(c.req.query("days") || "7");
+
+  if (!keyId) return c.text("Missing keyId!", 400);
+
+  const today = new Date();
+  let results = [];
+
+  for (let i = 0; i < days; i++) {
+    const date = new Date(today);
+    date.setDate(today.getDate() - i);
+    const dateString = date.toISOString().split("T")[0];
+
+    const dailyViewsKey = `views:${keyId}:${dateString}`;
+    const dailyViews = (await c.env.ANALYTICS.get(dailyViewsKey)) || "0";
+
+    results.push({ date: dateString, views: parseInt(dailyViews) });
+  }
+
+  return c.json(results.reverse()); // Reverse for chronological order
 });
 
 // app.post("/addUser", async (c) => {

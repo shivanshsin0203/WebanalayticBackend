@@ -29,7 +29,6 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 src/redis
-src/db
 # misc
 .DS_Store
 wrangler.json

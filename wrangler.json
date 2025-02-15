@@ -9,7 +9,12 @@
       "database_name": "webanalytic",
       "database_id": "f855f788-9f4a-4605-9fce-bd9ceeb24384"
     }
+  ],"kv_namespaces": [
+    {
+      "binding": "ANALYTICS",
+      "id": "51177e4d2b2042819f34f784588fc88a"
+    }
   ]
- 
+  
 
 }
